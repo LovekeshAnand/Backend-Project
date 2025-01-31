@@ -12,68 +12,100 @@ const getAllVideos = asyncHandler(async (req, res) => {
 })
 
 
-//WRITTING A CONTROLLER TO PUBLISH A VIDEO
+//CONTROLLER TO PUBLISH A VIDEO
 const publishAVideo = asyncHandler(async (req, res) => {
-    const { title, description} = req.body
-    // TODO: get video, upload to cloudinary, create video
+    const { title, description } = req.body;
 
     if (!title || !description) {
-        throw new ApiError(400, "Title or description is missing!")
+        throw new ApiError(400, "Title or description is missing!");
     }
 
-    //requesting files to upload on cloudinary
-    const videoLocalPath = req.files?.video?.[0]?.path; 
+    const videoLocalPath = req.files?.videoFile?.[0]?.path;
     const thumbnailLocalPath = req.files?.thumbnail?.[0]?.path;
 
     if (!videoLocalPath) {
-        throw new ApiError(400, "Video file is missing!")
+        throw new ApiError(400, "Video file is missing!");
     }
     if (!thumbnailLocalPath) {
-        throw new ApiError(400, "Thumbnail file is missing!")
+        throw new ApiError(400, "Thumbnail file is missing!");
     }
 
-    const videoFile = await uploadOnCloudinary(videoLocalPath)
-    const thumbnail = await uploadOnCloudinary(thumbnailLocalPath)
+    // console.log(videoLocalPath);
+    // console.log(thumbnailLocalPath);
+    
+    const videoFile = await uploadOnCloudinary(videoLocalPath);
+    const thumbnail = await uploadOnCloudinary(thumbnailLocalPath);
 
     if (!videoFile?.url || !thumbnail?.url) {
         throw new ApiError(500, "Error while uploading video or thumbnail to Cloudinary!");
     }
 
-    //saving video details in DB
+    const videoUrl = videoFile.url;
+    const thumbnailUrl = thumbnail.url;
+    // console.log(videoUrl)
+    // console.log(thumbnailUrl)
+
+    const videoId = videoUrl.split("/").pop().split(".")[0];
+    const thumbnailId = thumbnailUrl.split("/").pop().split(".")[0];
+
     const video = await Video.create({
-        videoFile: videoFile.url,
-        thumbnail: thumbnail.url,
+        videoFile: videoUrl,
+        thumbnail: thumbnailUrl,
+        cloudinaryVideoId: videoId,
+        cloudinaryThumbnailId: thumbnailId,
         title,
         description,
         duration: videoFile?.duration,
-        owner: req.user._id
-    })
+        owner: req.user._id,
+    });
 
     return res
-    .status(200)
-    .json(new ApiResponse(200, video, "Video published successfully!"))
-})
+        .status(200)
+        .json(new ApiResponse(200, video, "Video published successfully!"));
+});
+//this controller is working properly
 
 
-
+//CONTROLLER TO FETCH VIDEO BY VIDEO ID
 const getVideoById = asyncHandler(async (req, res) => {
     const { videoId } = req.params
     //TODO: get video by id
 
-})
+    const video = await Video.findById(videoId)
+    if (!video) {
+        throw new ApiError(404, "Video not found!")
+    }
 
+    return res
+    .status(200)
+    .json(new ApiResponse(200, video, "Video fetched successfully!"))
+
+})
+//this controller is working properly
+
+
+//CONTROLLER TO UPDATE VIDEO DETAILS BY VIDEO ID
 const updateVideo = asyncHandler(async (req, res) => {
     const { videoId } = req.params
-    //TODO: update video details like title, description, thumbnail
-    const {title, description} = req.body
-    const thumbnailLocalPath = req.file?.path
+
+
+    const video = await Video.findById(videoId)
+    if (video.owner.toString() !== req.user?._id.toString()) {
+        throw new ApiError(403, "You can only update videos publsihed by you!");
+    }
+
+    const { title, description } = req.body;
+    const thumbnailLocalPath = req.files?.thumbnail?.[0]?.path;
 
     if (!isValidObjectId(videoId)) {
         throw new ApiError(400, "Invalid video ID!")
     }
 
+    const oldThumbnail = await video.cloudinaryThumbnailId
+    await deleteFromCloudinary(oldThumbnail, "image")
+
     if (!title || !description) {
-        throw new ApiResponse(400, "Title or description is missing!")
+        throw new ApiError(400, "Title or description is missing!")
     }
 
     if (!thumbnailLocalPath) {
@@ -81,18 +113,22 @@ const updateVideo = asyncHandler(async (req, res) => {
     }
 
     const thumbnail = await uploadOnCloudinary(thumbnailLocalPath)
+    const thumbnailUrl = thumbnail.url
 
-    if (!thumbnail.url) {
+    if (!thumbnailUrl) {
         throw new ApiError(400, "Error while uploading the thumbanil")
     }
 
-    const video =  await Video.findByIdAndUpdate(
+    const thumbnailId = thumbnailUrl.split("/").pop().split(".")[0];
+
+    const newVideoDetails =  await Video.findByIdAndUpdate(
         videoId,
         {
             $set: {
                 title,
                 description,
-                thumbnail: thumbnail.url
+                thumbnail: thumbnail.url,
+                cloudinaryThumbnailId: thumbnailId
             }
         },
         {new: true}
@@ -100,52 +136,83 @@ const updateVideo = asyncHandler(async (req, res) => {
 
     return res
     .status(200)
-    .json(new ApiResponse(200, video, "Video details updated sucessfully!"))
+    .json(new ApiResponse(200, newVideoDetails, "Video details updated sucessfully!"))
 
 })
+//this controller is working properly
 
 
-//WRITTING CONTROLLER TO DELETE THE VIDEO FROM CLOUDINARY AND DB
+//CONTROLLER TO DELETE THE VIDEO FROM CLOUDINARY AND DB
 const deleteVideo = asyncHandler(async (req, res) => {
-    const { videoId } = req.params
-    //TODO: delete video
+    const { videoId } = req.params;
+
+    // Validate video ID
     if (!isValidObjectId(videoId)) {
-        throw new ApiError(400, "Video ID is not valid!")
+        throw new ApiError(400, "Video ID is not valid!");
     }
 
-    const video = await Video.findById({_id: videoId})
+    // Find the video in the database
+    const video = await Video.findById(videoId);
 
     if (!video) {
-        throw new ApiError(404, "Video is not found!")
+        throw new ApiError(404, "Video not found!");
     }
 
-    if (video.videoFile) {
-        const deleteVideoFile = await deleteFromCloudinary(video.videoFile);
-        if (!deleteVideoFile) {
-            console.error(`Failed to delete video file from Cloudinary: ${video.videoFile}`);
+    const deleteVideoFile = await deleteFromCloudinary(video.cloudinaryVideoId, "video")
+    const deleteThumbnail = await deleteFromCloudinary(video.cloudinaryThumbnailId, "image")
+    if (!(deleteVideoFile || deleteThumbnail)) {
+        throw new ApiError(400, "Failed to delete thumbnail or video from cloudinary")
+    }
+
+    // Delete video from the database
+    await Video.findByIdAndDelete(videoId);
+
+    // Respond to the client
+    return res
+        .status(200)
+        .json(new ApiResponse(200, null, "Video deleted successfully!"));
+});
+//this controller is working properly
+
+
+//CONTROLLER TO CHANGE THE PUBLISH STATUS
+const togglePublishStatus = asyncHandler(async (req, res) => {
+    const { videoId } = req.params
+    const {publishStatus} = req.body
+
+    if (!videoId) {
+        throw new ApiError(400, "Video Id is missing!")
+    }
+    if (!isValidObjectId(videoId)) {
+        throw new ApiError(400, "Video Id is not valid!")
+    }
+
+
+    const video = await Video.findById(videoId)
+    if (video.owner.toString() !== req.user?._id.toString()) {
+        throw new ApiError(403, "Only the owner is allowed to unpublish the video!");
+    }
+
+    const updatePublishStatus = await Video.findByIdAndUpdate(
+        videoId, 
+        {
+            $set: {
+                isPublished: publishStatus
+            }
+        },
+        {
+            new: true
         }
-    }
-
-    // Delete thumbnail from Cloudinary
-    if (video.thumbnail) {
-        const deleteThumbnail = await deleteFromCloudinary(video.thumbnail);
-        if (!deleteThumbnail) {
-            console.error(`Failed to delete thumbnail from Cloudinary: ${video.thumbnail}`);
-        }
-    }
-
-    await Video.findByIdAndDelete(videoId)
+    )    
 
     return res
     .status(200)
-    .json(new ApiResponse(200, "Video deleted successfully!"))
+    .json(new ApiResponse(200, updatePublishStatus, "Publish status updated successfully!"))
+
+
 })
+//this controller is working properly
 
-
-
-const togglePublishStatus = asyncHandler(async (req, res) => {
-    const { videoId } = req.params
-})
 
 export {
     getAllVideos,

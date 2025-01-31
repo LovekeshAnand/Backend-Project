@@ -187,7 +187,7 @@ const loginUser = asyncHandler( async (req, res) => {
 })
 
 
-//WRITTING CONTROLLER TO LOGIUT USER
+//WRITTING CONTROLLER TO LOGOUT USER
 const logoutUser = asyncHandler( async (req, res) => {
   //remove cookies 
   //remove refresh token from DB
