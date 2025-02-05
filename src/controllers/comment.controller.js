@@ -8,6 +8,17 @@ const getVideoComments = asyncHandler(async (req, res) => {
     //TODO: get all comments for a video
     const {videoId} = req.params
     const {page = 1, limit = 10} = req.query
+    const validSortBy = sortBy || "createdAt";
+    const parsedLimit = parseInt(limit) || 10;
+
+    if (!videoId) {
+        throw new ApiError(400, "Video id is missing from params!")
+    }
+    if (!isValidObjectId(videoId)) {
+        throw new ApiError(400, "Video id is not valid!")
+    }
+
+    const comments = await Comment.aggregate([])
 
 })
 

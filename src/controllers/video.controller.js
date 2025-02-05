@@ -7,8 +7,55 @@ import {asyncHandler} from "../utils/asyncHandler.js"
 import {uploadOnCloudinary, deleteFromCloudinary} from "../utils/cloudinary.js"
 
 const getAllVideos = asyncHandler(async (req, res) => {
-    const { page = 1, limit = 10, query, sortBy = "title", sortType = "ascending", userId } = req.query
+    const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query
+    const validSortBy = sortBy || "createdAt";
+    const validSortType = sortType === "asc" ? 1 : -1;
+    const parsedLimit = parseInt(limit) || 10;
+    
+
+
     //TODO: get all videos based on query, sort, pagination
+    const video = await Video.aggregate([
+        {
+            $match: {
+                $or: [
+                    {title: {$regex: query, $options: "i"}},
+                    {description: {$regex: query, $options: "i"}}
+                ]
+            } 
+        },
+        {
+            $lookup: {
+                from: "users",
+                localField: "owner",
+                foreignField: "_id",
+                as: "createdBy"
+            }
+        },
+        {
+            $unwind: "$createdBy"
+        },
+        {
+            $project: {
+                thumbnail: 1,
+                videoFile: 1,
+                title: 1,
+                description: 1,
+                createdBy: {
+                    fullname: 1,
+                    username: 1,
+                    avatar: 1
+                }
+            }
+        },
+        { $sort: { [validSortBy]: validSortType } },
+        { $skip: (page - 1) * parsedLimit },
+        { $limit: parsedLimit },
+    ])
+
+    return res
+    .status(200)
+    .json(new ApiResponse(200, video, "Videos for the feed fetched successfully!"))
 })
 
 
