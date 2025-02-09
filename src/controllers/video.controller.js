@@ -6,13 +6,13 @@ import {ApiResponse} from "../utils/ApiResponse.js"
 import {asyncHandler} from "../utils/asyncHandler.js"
 import {uploadOnCloudinary, deleteFromCloudinary} from "../utils/cloudinary.js"
 
+
+//CONTROLLER TO GET ALL VIDEO FOR FEED
 const getAllVideos = asyncHandler(async (req, res) => {
     const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query
     const validSortBy = sortBy || "createdAt";
     const validSortType = sortType === "asc" ? 1 : -1;
     const parsedLimit = parseInt(limit) || 10;
-    
-
 
     //TODO: get all videos based on query, sort, pagination
     const video = await Video.aggregate([
@@ -57,6 +57,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
     .status(200)
     .json(new ApiResponse(200, video, "Videos for the feed fetched successfully!"))
 })
+//this controller is working properly
 
 
 //CONTROLLER TO PUBLISH A VIDEO

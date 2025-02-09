@@ -3,24 +3,75 @@ import {Comment} from "../models/comment.model.js"
 import {ApiError} from "../utils/ApiError.js"
 import {ApiResponse} from "../utils/ApiResponse.js"
 import {asyncHandler} from "../utils/asyncHandler.js"
+import { Video } from "../models/video.model.js"
 
+
+//CONTROLLER TO FETCH COMMENTS FOR A PARTICULAR VIDEO
 const getVideoComments = asyncHandler(async (req, res) => {
     //TODO: get all comments for a video
-    const {videoId} = req.params
-    const {page = 1, limit = 10} = req.query
-    const validSortBy = sortBy || "createdAt";
-    const parsedLimit = parseInt(limit) || 10;
+    const { videoId } = req.params;
 
-    if (!videoId) {
-        throw new ApiError(400, "Video id is missing from params!")
+    const { page = 1, limit = 10 } = req.query;
+    const video = await Video.findById(videoId);
+    if (!video) {
+        throw new ApiError(404, "Video not found");
     }
-    if (!isValidObjectId(videoId)) {
-        throw new ApiError(400, "Video id is not valid!")
-    }
+    const options = {
+        page,
+        limit,
+    };
+    const comments = await Comment.aggregate([
+        {
+            $match: {
+                video: new mongoose.Types.ObjectId(videoId),
+            },
+        },
+        {
+            $lookup: {
+                from: "users",
+                localField: "owner",
+                foreignField: "_id",
+                as: "createdBy",
+                pipeline: [
+                {
+                    $project: {
+                    username: 1,
+                    fullName: 1,
+                    avatar: 1,
+                    },
+                },
+                ],
+            },
+        },
+        {
+            $addFields: {
+                createdBy: {
+                $first: "$createdBy",
+                },
+            },
+        },
+        {
+            $unwind: "$createdBy",
+        },
+        {
+            $project: {
+                content: 1,
+                createdBy: 1,
+            },
+        },
+        {
+            $skip: (page - 1) * limit,
+        },
+        {
+            $limit: parseInt(limit),
+        },
+  ]);
 
-    const comments = await Comment.aggregate([])
-
+  return res
+  .status(200)
+  .json(new ApiResponse(200, comments, "Comments for this video fetched successfully!"))
 })
+//this controller is working properly
 
 
 //CONTROLLER TO ADD A COMMENT ON A VIDEO BY GETTING VIDEO ID THROUGH PARAMS
